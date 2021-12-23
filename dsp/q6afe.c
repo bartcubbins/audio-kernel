@@ -25,7 +25,6 @@
 #include <dsp/q6audio-v2.h>
 #include <ipc/apr_tal.h>
 #include "adsp_err.h"
-#include <dsp/q6core.h>
 
 #define WAKELOCK_TIMEOUT	5000
 enum {
@@ -132,7 +131,6 @@ static struct afe_ctl this_afe;
 
 #define TIMEOUT_MS 1000
 #define Q6AFE_MAX_VOLUME 0x3FFF
-#define HS_USB_INTERVAL_US 125
 
 static int pcm_afe_instance[2];
 static int proxy_afe_instance[2];
@@ -161,13 +159,6 @@ done:
 	return topology;
 }
 
-/**
- * afe_set_aanc_info -
- *        Update AFE AANC info
- *
- * @q6_aanc_info: AFE AANC info params
- *
- */
 void afe_set_aanc_info(struct aanc_data *q6_aanc_info)
 {
 	this_afe.aanc_info.aanc_active = q6_aanc_info->aanc_active;
@@ -180,7 +171,6 @@ void afe_set_aanc_info(struct aanc_data *q6_aanc_info)
 		this_afe.aanc_info.aanc_rx_port,
 		this_afe.aanc_info.aanc_tx_port);
 }
-EXPORT_SYMBOL(afe_set_aanc_info);
 
 static void afe_callback_debug_print(struct apr_client_data *data)
 {
@@ -371,14 +361,20 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 			return -EINVAL;
 		}
 
+		if (rtac_make_afe_callback(data->payload,
+					   data->payload_size))
+			return 0;
+
+		if (data->payload_size < 3 * sizeof(uint32_t)) {
+			pr_err("%s: Error: size %d is less than expected\n",
+				__func__, data->payload_size);
+			return -EINVAL;
+		}
+
 		if (payload[2] == AFE_PARAM_ID_DEV_TIMING_STATS) {
 			av_dev_drift_afe_cb_handler(data->payload,
 						    data->payload_size);
 		} else {
-			if (rtac_make_afe_callback(data->payload,
-						   data->payload_size))
-				return 0;
-
 			if (sp_make_afe_callback(data->payload,
 						 data->payload_size))
 				return -EINVAL;
@@ -393,6 +389,11 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 
 		payload = data->payload;
 		if (data->opcode == APR_BASIC_RSP_RESULT) {
+			if (data->payload_size < (2 * sizeof(uint32_t))) {
+				pr_err("%s: Error: size %d is less than expected\n",
+					__func__, data->payload_size);
+				return -EINVAL;
+			}
 			pr_debug("%s:opcode = 0x%x cmd = 0x%x status = 0x%x token=%d\n",
 				__func__, data->opcode,
 				payload[0], payload[1], data->token);
@@ -490,14 +491,6 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 	return 0;
 }
 
-/**
- * afe_get_port_type -
- *        Retrieve AFE port type whether RX or TX
- *
- * @port_id: AFE Port ID number
- *
- * Returns RX/TX type on success or -EINVAL on failure.
- */
 int afe_get_port_type(u16 port_id)
 {
 	int ret;
@@ -664,7 +657,6 @@ int afe_get_port_type(u16 port_id)
 	case AFE_PORT_ID_INT4_MI2S_TX:
 	case AFE_PORT_ID_INT5_MI2S_TX:
 	case AFE_PORT_ID_INT6_MI2S_TX:
-	case AFE_LOOPBACK_TX:
 		ret = MSM_AFE_PORT_TYPE_TX;
 		break;
 
@@ -677,7 +669,6 @@ int afe_get_port_type(u16 port_id)
 
 	return ret;
 }
-EXPORT_SYMBOL(afe_get_port_type);
 
 int afe_sizeof_cfg_cmd(u16 port_id)
 {
@@ -755,12 +746,6 @@ int afe_sizeof_cfg_cmd(u16 port_id)
 	return ret_size;
 }
 
-/**
- * afe_q6_interface_prepare -
- *        wrapper API to check Q6 AFE registered to APR otherwise registers
- *
- * Returns 0 on success or error on failure.
- */
 int afe_q6_interface_prepare(void)
 {
 	int ret = 0;
@@ -772,13 +757,12 @@ int afe_q6_interface_prepare(void)
 			0xFFFFFFFF, &this_afe);
 		if (this_afe.apr == NULL) {
 			pr_err("%s: Unable to register AFE\n", __func__);
-			ret = -ENETRESET;
+			ret = -ENODEV;
 		}
 		rtac_set_afe_handle(this_afe.apr);
 	}
 	return ret;
 }
-EXPORT_SYMBOL(afe_q6_interface_prepare);
 
 /*
  * afe_apr_send_pkt : returns 0 on success, negative otherwise.
@@ -934,7 +918,7 @@ static void afe_send_custom_topology(void)
 		goto unlock;
 	this_afe.set_custom_topology = 0;
 	cal_block = cal_utils_get_only_cal_block(this_afe.cal_data[cal_index]);
-	if (cal_block == NULL) {
+	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
 		pr_err("%s cal_block not found!!\n", __func__);
 		goto unlock;
 	}
@@ -1394,7 +1378,9 @@ static struct cal_block_data *afe_find_cal_topo_id_by_port(
 		&cal_type->cal_blocks) {
 		cal_block = list_entry(ptr,
 			struct cal_block_data, list);
-
+		/* Skip cal_block if it is already marked stale */
+		if (cal_utils_is_cal_stale(cal_block))
+			continue;
 		path = ((afe_get_port_type(port_id) ==
 			MSM_AFE_PORT_TYPE_TX)?(TX_DEVICE):(RX_DEVICE));
 		afe_top =
@@ -1422,6 +1408,11 @@ err_exit:
 	return NULL;
 }
 
+/*
+ * Retrieving cal_block will mark cal_block as stale.
+ * Hence it cannot be reused or resent unless the flag
+ * is reset.
+ */
 static int afe_get_cal_topology_id(u16 port_id, u32 *topology_id,
 				   int cal_type_index)
 {
@@ -1431,7 +1422,8 @@ static int afe_get_cal_topology_id(u16 port_id, u32 *topology_id,
 	struct audio_cal_info_afe_top   *afe_top_info = NULL;
 
 	if (this_afe.cal_data[cal_type_index] == NULL) {
-		pr_err("%s: [AFE_TOPOLOGY_CAL] not initialized\n", __func__);
+		pr_err("%s: cal_type %d not initialized\n", __func__,
+			cal_type_index);
 		return -EINVAL;
 	}
 	if (topology_id == NULL) {
@@ -1444,8 +1436,8 @@ static int afe_get_cal_topology_id(u16 port_id, u32 *topology_id,
 	cal_block = afe_find_cal_topo_id_by_port(
 		this_afe.cal_data[cal_type_index], port_id);
 	if (cal_block == NULL) {
-		pr_err("%s: [AFE_TOPOLOGY_CAL] not initialized for this port %d\n",
-				__func__, port_id);
+		pr_err("%s: cal_type %d not initialized for this port %d\n",
+			__func__, cal_type_index, port_id);
 		ret = -EINVAL;
 		goto unlock;
 	}
@@ -1459,6 +1451,7 @@ static int afe_get_cal_topology_id(u16 port_id, u32 *topology_id,
 		goto unlock;
 	}
 	*topology_id = (u32)afe_top_info->topology;
+	cal_utils_mark_cal_used(cal_block);
 
 	pr_debug("%s: port_id = %u acdb_id = %d topology_id = %u ret=%d\n",
 		__func__, port_id, afe_top_info->acdb_id,
@@ -1597,7 +1590,7 @@ static struct cal_block_data *afe_find_cal(int cal_index, int port_id)
 			goto exit;
 		}
 	}
-	pr_err("%s: no matching cal_block found\n", __func__);
+	pr_debug("%s: no matching cal_block found\n", __func__);
 	cal_block = NULL;
 
 exit:
@@ -1637,7 +1630,7 @@ static int send_afe_cal_type(int cal_index, int port_id)
 		cal_block = cal_utils_get_only_cal_block(
 				this_afe.cal_data[cal_index]);
 
-	if (cal_block == NULL) {
+	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
 		pr_err("%s cal_block not found!!\n", __func__);
 		ret = -EINVAL;
 		goto unlock;
@@ -1656,6 +1649,9 @@ static int send_afe_cal_type(int cal_index, int port_id)
 	if (ret < 0)
 		pr_debug("%s: No cal sent for cal_index %d, port_id = 0x%x! ret %d\n",
 			__func__, cal_index, port_id, ret);
+
+	cal_utils_mark_cal_used(cal_block);
+
 unlock:
 	mutex_unlock(&this_afe.cal_data[cal_index]->lock);
 done:
@@ -2150,15 +2146,6 @@ int afe_send_aanc_version(
 	return ret;
 }
 
-/**
- * afe_port_set_mad_type -
- *        to update mad type
- *
- * @port_id: AFE port id number
- * @mad_type: MAD type enum value
- *
- * Returns 0 on success or error on failure.
- */
 int afe_port_set_mad_type(u16 port_id, enum afe_mad_type mad_type)
 {
 	int i;
@@ -2177,16 +2164,7 @@ int afe_port_set_mad_type(u16 port_id, enum afe_mad_type mad_type)
 	atomic_set(&afe_ports_mad_type[i], mad_type);
 	return 0;
 }
-EXPORT_SYMBOL(afe_port_set_mad_type);
 
-/**
- * afe_port_get_mad_type -
- *        to retrieve mad type
- *
- * @port_id: AFE port id number
- *
- * Returns valid enum value on success or MAD_HW_NONE on failure.
- */
 enum afe_mad_type afe_port_get_mad_type(u16 port_id)
 {
 	int i;
@@ -2202,19 +2180,7 @@ enum afe_mad_type afe_port_get_mad_type(u16 port_id)
 	}
 	return (enum afe_mad_type) atomic_read(&afe_ports_mad_type[i]);
 }
-EXPORT_SYMBOL(afe_port_get_mad_type);
 
-/**
- * afe_set_config -
- *        to configure AFE session with
- *        specified configuration for given config type
- *
- * @config_type: config type
- * @config_data: configuration to pass to AFE session
- * @arg: argument used in specific config types
- *
- * Returns 0 on success or error value on port start failure.
- */
 int afe_set_config(enum afe_config_type config_type, void *config_data, int arg)
 {
 	int ret;
@@ -2368,16 +2334,6 @@ fail_cmd:
 	return ret;
 }
 
-/**
- * afe_send_spdif_ch_status_cfg -
- *        to configure AFE session with
- *        specified channel status configuration
- *
- * @ch_status_cfg: channel status configutation
- * @port_id: AFE port id number
- *
- * Returns 0 on success or error value on port start failure.
- */
 int afe_send_spdif_ch_status_cfg(struct afe_param_id_spdif_ch_status_cfg
 		*ch_status_cfg,	u16 port_id)
 {
@@ -2457,7 +2413,6 @@ int afe_send_spdif_ch_status_cfg(struct afe_param_id_spdif_ch_status_cfg
 fail_cmd:
 	return ret;
 }
-EXPORT_SYMBOL(afe_send_spdif_ch_status_cfg);
 
 static int afe_send_cmd_port_start(u16 port_id)
 {
@@ -2520,16 +2475,6 @@ fail_cmd:
 	return ret;
 }
 
-/**
- * afe_spdif_port_start - to configure AFE session with
- * specified port configuration
- *
- * @port_id: AFE port id number
- * @spdif_port: spdif port configutation
- * @rate: sampling rate of port
- *
- * Returns 0 on success or error value on port start failure.
- */
 int afe_spdif_port_start(u16 port_id, struct afe_spdif_port_config *spdif_port,
 		u32 rate)
 {
@@ -2605,7 +2550,6 @@ int afe_spdif_port_start(u16 port_id, struct afe_spdif_port_config *spdif_port,
 fail_cmd:
 	return ret;
 }
-EXPORT_SYMBOL(afe_spdif_port_start);
 
 int afe_send_slot_mapping_cfg(
 	struct afe_param_id_slot_mapping_cfg *slot_mapping_cfg,
@@ -2765,17 +2709,6 @@ fail_cmd:
 	return ret;
 }
 
-/**
- * afe_tdm_port_start - to configure AFE session with
- * specified port configuration
- *
- * @port_id: AFE port id number
- * @tdm_port: TDM port configutation
- * @rate: sampling rate of port
- * @num_groups: number of TDM groups
- *
- * Returns 0 on success or error value on port start failure.
- */
 int afe_tdm_port_start(u16 port_id, struct afe_tdm_port_config *tdm_port,
 		       u32 rate, u16 num_groups)
 {
@@ -2903,16 +2836,7 @@ int afe_tdm_port_start(u16 port_id, struct afe_tdm_port_config *tdm_port,
 fail_cmd:
 	return ret;
 }
-EXPORT_SYMBOL(afe_tdm_port_start);
 
-/**
- * afe_set_cal_mode -
- *         set cal mode for AFE calibration
- *
- * @port_id: AFE port id number
- * @afe_cal_mode: AFE calib mode
- *
- */
 void afe_set_cal_mode(u16 port_id, enum afe_cal_mode afe_cal_mode)
 {
 	uint16_t port_index;
@@ -2920,20 +2844,11 @@ void afe_set_cal_mode(u16 port_id, enum afe_cal_mode afe_cal_mode)
 	port_index = afe_get_port_index(port_id);
 	this_afe.afe_cal_mode[port_index] = afe_cal_mode;
 }
-EXPORT_SYMBOL(afe_set_cal_mode);
 
-/**
- * afe_set_routing_callback -
- *         Update callback function for routing
- *
- * @cb: callback function to update with
- *
- */
 void afe_set_routing_callback(routing_cb cb)
 {
 	this_afe.rt_cb = cb;
 }
-EXPORT_SYMBOL(afe_set_routing_callback);
 
 int afe_port_send_usb_dev_param(u16 port_id, union afe_port_config *afe_config)
 {
@@ -2995,25 +2910,6 @@ int afe_port_send_usb_dev_param(u16 port_id, union afe_port_config *afe_config)
 		goto exit;
 	}
 
-	config.pdata.param_id = AFE_PARAM_ID_PORT_LATENCY_MODE_CONFIG;
-	config.pdata.param_size = sizeof(config.latency_config);
-	config.latency_config.minor_version =
-		AFE_API_MINOR_VERSION_USB_AUDIO_LATENCY_MODE;
-	if (afe_config->usb_audio.service_interval > 0 &&
-		afe_config->usb_audio.service_interval <= HS_USB_INTERVAL_US)
-		config.latency_config.mode = AFE_PORT_LOW_LATENCY_MODE;
-	else
-		config.latency_config.mode = AFE_PORT_DEFAULT_LATENCY_MODE;
-
-	ret = afe_apr_send_pkt(&config, &this_afe.wait[index]);
-	if (ret) {
-		pr_debug("%s: AFE device param cmd latency mode failed %d\n",
-			__func__, ret);
-		/* latency mode is an optimization, not a requirement */
-		ret = 0;
-		goto exit;
-	}
-
 exit:
 	return ret;
 }
@@ -3023,8 +2919,8 @@ static int q6afe_send_dec_config(u16 port_id,
 			struct afe_dec_config *cfg)
 {
 	struct afe_audioif_config_command config;
-	int index = 0;
-	int ret = 0;
+	int index;
+	int ret;
 	size_t payload_size = sizeof(config) - sizeof(struct apr_hdr) -
 				sizeof(config.param) - sizeof(config.port);
 
@@ -3050,7 +2946,7 @@ static int q6afe_send_dec_config(u16 port_id,
 	config.pdata.module_id = AFE_MODULE_ID_DECODER;
 	config.param.payload_size =
 			payload_size + sizeof(config.port.dec_depkt_id_param);
-	pr_debug("%s:sending AFE_DECODER_PARAM_ID_DEPACKETIZER to DSP payload = %d\n",
+	pr_debug("%s:sending AFE_DECODER_PARAM_ID_DEPACKETIZER to DSP payload = %d",
 		  __func__, config.param.payload_size);
 	config.pdata.param_id = AFE_DECODER_PARAM_ID_DEPACKETIZER_ID;
 	config.pdata.param_size = sizeof(config.port.dec_depkt_id_param);
@@ -3081,8 +2977,7 @@ static int q6afe_send_dec_config(u16 port_id,
 			payload_size + sizeof(config.port.media_type);
 	config.pdata.param_size = sizeof(config.port.media_type);
 
-	pr_debug("%s:Sending AFE_API_VERSION_PORT_MEDIA_TYPE to DSP\n",
-		 __func__);
+	pr_debug("%s:Sending AFE_API_VERSION_PORT_MEDIA_TYPE to DSP", __func__);
 	config.pdata.module_id = AFE_MODULE_PORT;
 	config.pdata.param_id = AFE_PARAM_ID_PORT_MEDIA_TYPE;
 	config.port.media_type.minor_version = AFE_API_VERSION_PORT_MEDIA_TYPE;
@@ -3165,6 +3060,15 @@ static int q6afe_send_enc_config(u16 port_id,
 		config.port.enc_blk_param.enc_cfg_blk_size =
 				sizeof(config.port.enc_blk_param.enc_blk_config)
 					- sizeof(struct afe_abr_enc_cfg_t);
+	} else if (format == ASM_MEDIA_FMT_AAC_V2) {
+		config.param.payload_size = payload_size
+				+ sizeof(config.port.enc_blk_param)
+				- sizeof(struct asm_aac_frame_size_control_t);
+		config.pdata.param_size = sizeof(config.port.enc_blk_param)
+				- sizeof(struct asm_aac_frame_size_control_t);
+		config.port.enc_blk_param.enc_cfg_blk_size =
+				sizeof(config.port.enc_blk_param.enc_blk_config)
+				- sizeof(struct asm_aac_frame_size_control_t);
 	} else {
 		config.param.payload_size = payload_size
 					+ sizeof(config.port.enc_blk_param);
@@ -3181,6 +3085,32 @@ static int q6afe_send_enc_config(u16 port_id,
 		pr_err("%s: AFE_ENCODER_PARAM_ID_ENC_CFG_BLK for port 0x%x failed %d\n",
 			__func__, port_id, ret);
 		goto exit;
+	}
+
+	if (format == ASM_MEDIA_FMT_AAC_V2) {
+		uint32_t frame_size_ctl_value = config.port.enc_blk_param.
+			enc_blk_config.aac_config.frame_ctl.ctl_value;
+		if (frame_size_ctl_value > 0) {
+			config.param.payload_size = payload_size
+					+ sizeof(config.port.frame_ctl_param);
+			config.pdata.param_id =
+				AFE_PARAM_ID_AAC_FRM_SIZE_CONTROL;
+			config.pdata.param_size =
+				sizeof(config.port.frame_ctl_param);
+			config.port.frame_ctl_param.ctl_type =
+				config.port.enc_blk_param.enc_blk_config.
+					aac_config.frame_ctl.ctl_type;
+			config.port.frame_ctl_param.ctl_value =
+						frame_size_ctl_value;
+			pr_debug("%s: send AFE_PARAM_ID_AAC_FRM_SIZE_CONTROL\n",
+				  __func__);
+			ret = afe_apr_send_pkt(&config, &this_afe.wait[index]);
+			if (ret) {
+				pr_err("%s: AAC_FRM_SIZE_CONTROL failed %d\n",
+					__func__, ret);
+				goto exit;
+			}
+		}
 	}
 
 	if (format == ASM_MEDIA_FMT_APTX) {
@@ -3230,7 +3160,8 @@ static int q6afe_send_enc_config(u16 port_id,
 		goto exit;
 	}
 
-	if (format == ASM_MEDIA_FMT_LDAC) {
+	if (format == ASM_MEDIA_FMT_LDAC &&
+	    cfg->ldac_config.abr_config.is_abr_enabled) {
 		config.param.payload_size =
 			payload_size + sizeof(config.port.map_param);
 		pr_debug("%s:sending AFE_ENCODER_PARAM_ID_BIT_RATE_LEVEL_MAP to DSP payload = %d\n",
@@ -3267,8 +3198,7 @@ static int q6afe_send_enc_config(u16 port_id,
 			payload_size + sizeof(config.port.media_type);
 	config.pdata.param_size = sizeof(config.port.media_type);
 
-	pr_debug("%s:Sending AFE_API_VERSION_PORT_MEDIA_TYPE to DSP\n",
-		 __func__);
+	pr_debug("%s:Sending AFE_API_VERSION_PORT_MEDIA_TYPE to DSP", __func__);
 	config.pdata.module_id = AFE_MODULE_PORT;
 	config.pdata.param_id = AFE_PARAM_ID_PORT_MEDIA_TYPE;
 	config.port.media_type.minor_version = AFE_API_VERSION_PORT_MEDIA_TYPE;
@@ -3646,7 +3576,7 @@ EXPORT_SYMBOL(afe_port_start);
 
 /**
  * afe_port_start_v2 - to configure AFE session with
- * specified port configuration and encoder/decoder params
+ * specified port configuration and encoder /decoder params
  *
  * @port_id: AFE port id number
  * @afe_config: port configutation
@@ -3669,7 +3599,7 @@ int afe_port_start_v2(u16 port_id, union afe_port_config *afe_config,
 		ret = __afe_port_start(port_id, afe_config, rate,
 					afe_in_channels, afe_in_bit_width,
 					&enc_cfg->data, enc_cfg->format,
-					enc_cfg->scrambler_mode, NULL);
+					enc_cfg->scrambler_mode, dec_cfg);
 	else if (dec_cfg != NULL)
 		ret = __afe_port_start(port_id, afe_config, rate,
 					afe_in_channels, afe_in_bit_width,
@@ -3957,24 +3887,12 @@ int afe_get_port_index(u16 port_id)
 		return IDX_AFE_PORT_ID_INT6_MI2S_RX;
 	case AFE_PORT_ID_INT6_MI2S_TX:
 		return IDX_AFE_PORT_ID_INT6_MI2S_TX;
-	case AFE_LOOPBACK_TX:
-		return IDX_AFE_LOOPBACK_TX;
 	default:
 		pr_err("%s: port 0x%x\n", __func__, port_id);
 		return -EINVAL;
 	}
 }
 
-/**
- * afe_open -
- *         command to open AFE port
- *
- * @port_id: AFE port id
- * @afe_config: AFE port config to pass
- * @rate: sample rate
- *
- * Returns 0 on success or error on failure
- */
 int afe_open(u16 port_id,
 		union afe_port_config *afe_config, int rate)
 {
@@ -4152,18 +4070,7 @@ fail_cmd:
 	mutex_unlock(&this_afe.afe_cmd_lock);
 	return ret;
 }
-EXPORT_SYMBOL(afe_open);
 
-/**
- * afe_loopback -
- *         command to set loopback between AFE ports
- *
- * @enable: enable or disable loopback
- * @rx_port: AFE RX port ID
- * @tx_port: AFE TX port ID
- *
- * Returns 0 on success or error on failure
- */
 int afe_loopback(u16 enable, u16 rx_port, u16 tx_port)
 {
 	struct afe_loopback_cfg_v1 lb_cmd;
@@ -4221,17 +4128,7 @@ int afe_loopback(u16 enable, u16 rx_port, u16 tx_port)
 		pr_err("%s: AFE loopback failed %d\n", __func__, ret);
 	return ret;
 }
-EXPORT_SYMBOL(afe_loopback);
 
-/**
- * afe_loopback_gain -
- *         command to set gain for AFE loopback
- *
- * @port_id: AFE port id
- * @volume: gain value to set
- *
- * Returns 0 on success or error on failure
- */
 int afe_loopback_gain(u16 port_id, u16 volume)
 {
 	struct afe_loopback_gain_per_path_param set_param;
@@ -4314,7 +4211,6 @@ int afe_loopback_gain(u16 port_id, u16 volume)
 fail_cmd:
 	return ret;
 }
-EXPORT_SYMBOL(afe_loopback_gain);
 
 int afe_pseudo_port_start_nowait(u16 port_id)
 {
@@ -4501,16 +4397,6 @@ int afe_port_group_set_param(u16 group_id,
 	return ret;
 }
 
-/**
- * afe_port_group_enable -
- *         command to enable AFE port group
- *
- * @group_id: group ID for AFE port group
- * @afe_group_config: config for AFE group
- * @enable: flag to indicate enable or disable
- *
- * Returns 0 on success or error on failure
- */
 int afe_port_group_enable(u16 group_id,
 	union afe_port_group_config *afe_group_config,
 	u16 enable)
@@ -4563,7 +4449,6 @@ int afe_port_group_enable(u16 group_id,
 
 	return ret;
 }
-EXPORT_SYMBOL(afe_port_group_enable);
 
 int afe_stop_pseudo_port(u16 port_id)
 {
@@ -4609,28 +4494,11 @@ int afe_stop_pseudo_port(u16 port_id)
 	return ret;
 }
 
-/**
- * afe_req_mmap_handle -
- *         Retrieve AFE memory map handle
- *
- * @ac: AFE audio client
- *
- * Returns memory map handle
- */
 uint32_t afe_req_mmap_handle(struct afe_audio_client *ac)
 {
 	return ac->mem_map_handle;
 }
-EXPORT_SYMBOL(afe_req_mmap_handle);
 
-/**
- * q6afe_audio_client_alloc -
- *         Assign new AFE audio client
- *
- * @priv: privata data to hold for audio client
- *
- * Returns ac pointer on success or NULL on failure
- */
 struct afe_audio_client *q6afe_audio_client_alloc(void *priv)
 {
 	struct afe_audio_client *ac;
@@ -4655,19 +4523,7 @@ struct afe_audio_client *q6afe_audio_client_alloc(void *priv)
 
 	return ac;
 }
-EXPORT_SYMBOL(q6afe_audio_client_alloc);
 
-/**
- * q6afe_audio_client_buf_alloc_contiguous -
- *         Allocate contiguous shared buffers
- *
- * @dir: RX or TX direction of AFE port
- * @ac: AFE audio client handle
- * @bufsz: size of each shared buffer
- * @bufcnt: number of buffers
- *
- * Returns 0 on success or error on failure
- */
 int q6afe_audio_client_buf_alloc_contiguous(unsigned int dir,
 			struct afe_audio_client *ac,
 			unsigned int bufsz,
@@ -4746,18 +4602,7 @@ fail:
 	q6afe_audio_client_buf_free_contiguous(dir, ac);
 	return -EINVAL;
 }
-EXPORT_SYMBOL(q6afe_audio_client_buf_alloc_contiguous);
 
-/**
- * afe_memory_map -
- *         command to map shared buffers to AFE
- *
- * @dma_addr_p: DMA physical address
- * @dma_buf_sz: shared DMA buffer size
- * @ac: AFE audio client handle
- *
- * Returns 0 on success or error on failure
- */
 int afe_memory_map(phys_addr_t dma_addr_p, u32 dma_buf_sz,
 			struct afe_audio_client *ac)
 {
@@ -4778,7 +4623,6 @@ int afe_memory_map(phys_addr_t dma_addr_p, u32 dma_buf_sz,
 
 	return ret;
 }
-EXPORT_SYMBOL(afe_memory_map);
 
 int afe_cmd_memory_map(phys_addr_t dma_addr_p, u32 dma_buf_sz)
 {
@@ -4953,15 +4797,6 @@ int afe_cmd_memory_map_nowait(int port_id, phys_addr_t dma_addr_p,
 	kfree(mmap_region_cmd);
 	return ret;
 }
-
-/**
- * q6afe_audio_client_buf_free_contiguous -
- *         frees the shared contiguous memory
- *
- * @dir: RX or TX direction of port
- * @ac: AFE audio client handle
- *
- */
 int q6afe_audio_client_buf_free_contiguous(unsigned int dir,
 			struct afe_audio_client *ac)
 {
@@ -5001,15 +4836,7 @@ int q6afe_audio_client_buf_free_contiguous(unsigned int dir,
 	mutex_unlock(&ac->cmd_lock);
 	return 0;
 }
-EXPORT_SYMBOL(q6afe_audio_client_buf_free_contiguous);
 
-/**
- * q6afe_audio_client_free -
- *         frees the audio client from AFE
- *
- * @ac: AFE audio client handle
- *
- */
 void q6afe_audio_client_free(struct afe_audio_client *ac)
 {
 	int loopcnt;
@@ -5028,16 +4855,7 @@ void q6afe_audio_client_free(struct afe_audio_client *ac)
 	}
 	kfree(ac);
 }
-EXPORT_SYMBOL(q6afe_audio_client_free);
 
-/**
- * afe_cmd_memory_unmap -
- *         command to unmap memory for AFE shared buffer
- *
- * @mem_map_handle: memory map handle to be unmapped
- *
- * Returns 0 on success or error on failure
- */
 int afe_cmd_memory_unmap(u32 mem_map_handle)
 {
 	int ret = 0;
@@ -5078,7 +4896,6 @@ int afe_cmd_memory_unmap(u32 mem_map_handle)
 
 	return ret;
 }
-EXPORT_SYMBOL(afe_cmd_memory_unmap);
 
 int afe_cmd_memory_unmap_nowait(u32 mem_map_handle)
 {
@@ -5115,16 +4932,6 @@ int afe_cmd_memory_unmap_nowait(u32 mem_map_handle)
 	return ret;
 }
 
-/**
- * afe_register_get_events -
- *         register for events from proxy port
- *
- * @port_id: Port ID to register events
- * @cb: callback function to invoke for events from proxy port
- * @private_data: private data to sent back in callback fn
- *
- * Returns 0 on success or error on failure
- */
 int afe_register_get_events(u16 port_id,
 		void (*cb)(uint32_t opcode,
 		uint32_t token, uint32_t *payload, void *priv),
@@ -5177,16 +4984,7 @@ int afe_register_get_events(u16 port_id,
 			   __func__, ret);
 	return ret;
 }
-EXPORT_SYMBOL(afe_register_get_events);
 
-/**
- * afe_unregister_get_events -
- *         unregister for events from proxy port
- *
- * @port_id: Port ID to unregister events
- *
- * Returns 0 on success or error on failure
- */
 int afe_unregister_get_events(u16 port_id)
 {
 	int ret = 0;
@@ -5253,19 +5051,7 @@ int afe_unregister_get_events(u16 port_id)
 			   __func__, ret);
 	return ret;
 }
-EXPORT_SYMBOL(afe_unregister_get_events);
 
-/**
- * afe_rt_proxy_port_write -
- *         command for AFE RT proxy port write
- *
- * @buf_addr_p: Physical buffer address with
- *           playback data to proxy port
- * @mem_map_handle: memory map handle of write buffer
- * @bytes: number of bytes to write
- *
- * Returns 0 on success or error on failure
- */
 int afe_rt_proxy_port_write(phys_addr_t buf_addr_p,
 		u32 mem_map_handle, int bytes)
 {
@@ -5302,18 +5088,7 @@ int afe_rt_proxy_port_write(phys_addr_t buf_addr_p,
 	return ret;
 
 }
-EXPORT_SYMBOL(afe_rt_proxy_port_write);
 
-/**
- * afe_rt_proxy_port_read -
- *         command for AFE RT proxy port read
- *
- * @buf_addr_p: Physical buffer address to fill read data
- * @mem_map_handle: memory map handle for buffer read
- * @bytes: number of bytes to read
- *
- * Returns 0 on success or error on failure
- */
 int afe_rt_proxy_port_read(phys_addr_t buf_addr_p,
 		u32 mem_map_handle, int bytes)
 {
@@ -5348,7 +5123,6 @@ int afe_rt_proxy_port_read(phys_addr_t buf_addr_p,
 			   __func__, afecmd_rd.port_id, ret);
 	return ret;
 }
-EXPORT_SYMBOL(afe_rt_proxy_port_read);
 
 #ifdef CONFIG_DEBUG_FS
 static struct dentry *debugfs_afelb;
@@ -5514,14 +5288,6 @@ static void config_debug_fs_exit(void)
 }
 #endif
 
-/**
- * afe_set_dtmf_gen_rx_portid -
- *         Set port_id for DTMF tone generation
- *
- * @port_id: AFE port id
- * @set: set or reset port id value for dtmf gen
- *
- */
 void afe_set_dtmf_gen_rx_portid(u16 port_id, int set)
 {
 	if (set)
@@ -5529,18 +5295,7 @@ void afe_set_dtmf_gen_rx_portid(u16 port_id, int set)
 	else if (this_afe.dtmf_gen_rx_portid == port_id)
 		this_afe.dtmf_gen_rx_portid = -1;
 }
-EXPORT_SYMBOL(afe_set_dtmf_gen_rx_portid);
 
-/**
- * afe_dtmf_generate_rx - command to generate AFE DTMF RX
- *
- * @duration_in_ms: Duration in ms for dtmf tone
- * @high_freq: Higher frequency for dtmf
- * @low_freq: lower frequency for dtmf
- * @gain: Gain value for DTMF tone
- *
- * Returns 0 on success, appropriate error code otherwise
- */
 int afe_dtmf_generate_rx(int64_t duration_in_ms,
 			 uint16_t high_freq,
 			 uint16_t low_freq, uint16_t gain)
@@ -5627,7 +5382,6 @@ fail_cmd:
 	pr_err("%s: failed %d\n", __func__, ret);
 	return ret;
 }
-EXPORT_SYMBOL(afe_dtmf_generate_rx);
 
 static int afe_sidetone_iir(u16 tx_port_id)
 {
@@ -5663,7 +5417,7 @@ static int afe_sidetone_iir(u16 tx_port_id)
 	}
 	mutex_lock(&this_afe.cal_data[cal_index]->lock);
 	cal_block = cal_utils_get_only_cal_block(this_afe.cal_data[cal_index]);
-	if (cal_block == NULL) {
+	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
 		pr_err("%s: cal_block not found\n ", __func__);
 		mutex_unlock(&this_afe.cal_data[cal_index]->lock);
 		ret = -EINVAL;
@@ -5769,7 +5523,7 @@ static int afe_sidetone(u16 tx_port_id, u16 rx_port_id, bool enable)
 	}
 	mutex_lock(&this_afe.cal_data[cal_index]->lock);
 	cal_block = cal_utils_get_only_cal_block(this_afe.cal_data[cal_index]);
-	if (cal_block == NULL) {
+	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
 		pr_err("%s: cal_block not found\n", __func__);
 		mutex_unlock(&this_afe.cal_data[cal_index]->lock);
 		ret = -EINVAL;
@@ -6105,13 +5859,6 @@ fail_cmd:
 
 }
 
-/**
- * afe_close - command to close AFE port
- *
- * @port_id: AFE port id
- *
- * Returns 0 on success, appropriate error code otherwise
- */
 int afe_close(int port_id)
 {
 	struct afe_port_cmd_device_stop stop;
@@ -6234,7 +5981,6 @@ int afe_close(int port_id)
 fail_cmd:
 	return ret;
 }
-EXPORT_SYMBOL(afe_close);
 
 int afe_set_digital_codec_core_clock(u16 port_id,
 				struct afe_digital_clk_cfg *cfg)
@@ -6311,14 +6057,6 @@ fail_cmd:
 	return ret;
 }
 
-/**
- * afe_set_lpass_clock - Enable AFE lpass clock
- *
- * @port_id: AFE port id
- * @cfg: pointer to clk set struct
- *
- * Returns 0 on success, appropriate error code otherwise
- */
 int afe_set_lpass_clock(u16 port_id, struct afe_clk_cfg *cfg)
 {
 	struct afe_lpass_clk_config_command clk_cfg;
@@ -6409,7 +6147,6 @@ fail_cmd:
 	mutex_unlock(&this_afe.afe_cmd_lock);
 	return ret;
 }
-EXPORT_SYMBOL(afe_set_lpass_clock);
 
 /**
  * afe_set_lpass_clk_cfg - Set AFE clk config
@@ -6535,47 +6272,6 @@ int afe_set_lpass_clock_v2(u16 port_id, struct afe_clk_set *cfg)
 	return ret;
 }
 EXPORT_SYMBOL(afe_set_lpass_clock_v2);
-
-static int afe_get_service_ver(void)
-{
-	int ret = 0;
-	size_t ver_size;
-	struct avcs_fwk_ver_info *ver_info = NULL;
-
-	ver_size = sizeof(struct avcs_get_fwk_version) +
-			sizeof(struct avs_svc_api_info);
-	ver_info = kzalloc(ver_size, GFP_KERNEL);
-	if (ver_info == NULL)
-		return -ENOMEM;
-
-	ret = q6core_get_service_version(AVCS_SERVICE_ID_AFE, ver_info, ver_size);
-	if (ret)
-		pr_err("%s: q6core_get_service_version failed %d\n",
-		       __func__, ret);
-
-	return ret;
-}
-
-enum lpass_clk_ver afe_get_lpass_clk_ver(void)
-{
-	enum lpass_clk_ver lpass_clk_ver;
-
-	/*
-	 * Use different APIs to set the LPASS clock depending on the AFE
-	 * version. On success afe_get_service_ver returns 0 signyfing the
-	 * latest AFE version is supported. Use LPASS clock version 2 if the
-	 * latest AFE version is supported, otherwise use LPASS clock version 1.
-	 */
-	lpass_clk_ver = (afe_get_service_ver() == 0) ?
-		LPASS_CLK_VER_2 : LPASS_CLK_VER_1;
-
-	pr_debug("%s: returning %s\n", __func__,
-		 (lpass_clk_ver == LPASS_CLK_VER_2) ?
-			"LPASS_CLK_VER_2" : "LPASS_CLK_VER_1");
-
-	return lpass_clk_ver;
-}
-EXPORT_SYMBOL(afe_get_lpass_clk_ver);
 
 int afe_set_lpass_internal_digital_codec_clock(u16 port_id,
 			struct afe_digital_clk_cfg *cfg)
@@ -6933,15 +6629,6 @@ done:
 	return ret;
 }
 
-/**
- * afe_get_av_dev_drift -
- *       command to retrieve AV drift
- *
- * @timing_stats: timing stats to be updated with AV drift values
- * @port: AFE port ID
- *
- * Returns 0 on success or error on failure
- */
 int afe_get_av_dev_drift(struct afe_param_id_dev_timing_stats *timing_stats,
 			 u16 port)
 {
@@ -7023,7 +6710,6 @@ int afe_get_av_dev_drift(struct afe_param_id_dev_timing_stats *timing_stats,
 exit:
 	return ret;
 }
-EXPORT_SYMBOL(afe_get_av_dev_drift);
 
 int afe_spk_prot_get_calib_data(struct afe_spkr_prot_get_vi_calib *calib_resp)
 {
@@ -7104,18 +6790,6 @@ fail_cmd:
 	return ret;
 }
 
-/**
- * afe_spk_prot_feed_back_cfg -
- *       command to setup spk protection feedback config
- *
- * @src_port: source port id
- * @dst_port: destination port id
- * @l_ch: left speaker active or not
- * @r_ch: right speaker active or not
- * @enable: flag to enable or disable
- *
- * Returns 0 on success or error on failure
- */
 int afe_spk_prot_feed_back_cfg(int src_port, int dst_port,
 	int l_ch, int r_ch, u32 enable)
 {
@@ -7161,7 +6835,6 @@ int afe_spk_prot_feed_back_cfg(int src_port, int dst_port,
 fail_cmd:
 	return ret;
 }
-EXPORT_SYMBOL(afe_spk_prot_feed_back_cfg);
 
 static int get_cal_type_index(int32_t cal_type)
 {
@@ -7315,6 +6988,9 @@ static struct cal_block_data *afe_find_hw_delay_by_path(
 		cal_block = list_entry(ptr,
 			struct cal_block_data, list);
 
+		if (cal_utils_is_cal_stale(cal_block))
+			continue;
+
 		if (((struct audio_cal_info_hw_delay *)cal_block->cal_info)
 			->path == path) {
 			return cal_block;
@@ -7378,6 +7054,8 @@ static int afe_get_cal_hw_delay(int32_t path,
 		ret = -EFAULT;
 		goto unlock;
 	}
+
+	cal_utils_mark_cal_used(cal_block);
 	pr_debug("%s: Path = %d samplerate = %u usec = %u status %d\n",
 		 __func__, path, entry->sample_rate, entry->delay_usec, ret);
 unlock:
@@ -7849,7 +7527,7 @@ done:
 	return result;
 }
 
-int __init afe_init(void)
+static int __init afe_init(void)
 {
 	int i = 0, ret;
 
@@ -7880,17 +7558,14 @@ int __init afe_init(void)
 	return 0;
 }
 
-void afe_exit(void)
+static void __exit afe_exit(void)
 {
-	if (this_afe.apr) {
-		apr_reset(this_afe.apr);
-		atomic_set(&this_afe.state, 0);
-		this_afe.apr = NULL;
-		rtac_set_afe_handle(this_afe.apr);
-	}
 	afe_delete_cal_data();
 
 	config_debug_fs_exit();
 	mutex_destroy(&this_afe.afe_cmd_lock);
 	wakeup_source_trash(&wl.ws);
 }
+
+device_initcall(afe_init);
+__exitcall(afe_exit);

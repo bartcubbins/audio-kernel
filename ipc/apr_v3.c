@@ -25,13 +25,11 @@ enum apr_subsys_state apr_get_subsys_state(void)
 {
 	return apr_get_modem_state();
 }
-EXPORT_SYMBOL(apr_get_subsys_state);
 
 void apr_set_subsys_state(void)
 {
 	apr_set_modem_state(APR_SUBSYS_DOWN);
 }
-EXPORT_SYMBOL(apr_set_subsys_state);
 
 uint16_t apr_get_data_src(struct apr_hdr *hdr)
 {
@@ -58,16 +56,6 @@ void subsys_notif_register(char *client_name, int domain,
 	if (ret < 0)
 		pr_err("%s: Audio notifier register failed for domain %d ret = %d\n",
 			__func__, domain, ret);
-}
-
-void subsys_notif_deregister(char *client_name)
-{
-	int ret;
-
-	ret = audio_notifier_deregister(client_name);
-	if (ret < 0)
-		pr_err("%s: Audio notifier de-register failed for client %s\n",
-			__func__, client_name);
 }
 
 uint16_t apr_get_reset_domain(uint16_t proc)

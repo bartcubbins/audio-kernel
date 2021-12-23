@@ -63,7 +63,6 @@ size_t get_cal_info_size(int32_t cal_type)
 		break;
 	case ADM_AUDPROC_CAL_TYPE:
 	case ADM_LSM_AUDPROC_CAL_TYPE:
-	case ADM_LSM_AUDPROC_PERSISTENT_CAL_TYPE:
 		size = sizeof(struct audio_cal_info_audproc);
 		break;
 	case ADM_AUDVOL_CAL_TYPE:
@@ -214,7 +213,6 @@ size_t get_user_cal_type_size(int32_t cal_type)
 		break;
 	case ADM_AUDPROC_CAL_TYPE:
 	case ADM_LSM_AUDPROC_CAL_TYPE:
-	case ADM_LSM_AUDPROC_PERSISTENT_CAL_TYPE:
 		size = sizeof(struct audio_cal_type_audproc);
 		break;
 	case ADM_AUDVOL_CAL_TYPE:
@@ -491,14 +489,6 @@ done:
 	return;
 }
 
-/**
- * cal_utils_destroy_cal_types -
- *        Destroys cal types and deregister from cal info
- *
- * @num_cal_types: number of cal types
- * @cal_type: cal type pointer with cal info
- *
- */
 void cal_utils_destroy_cal_types(int num_cal_types,
 			struct cal_type_data **cal_type)
 {
@@ -524,7 +514,6 @@ void cal_utils_destroy_cal_types(int num_cal_types,
 done:
 	return;
 }
-EXPORT_SYMBOL(cal_utils_destroy_cal_types);
 
 /**
  * cal_utils_get_only_cal_block
@@ -1041,9 +1030,40 @@ int cal_utils_set_cal(size_t data_size, void *data,
 		((uint8_t *)data + sizeof(struct audio_cal_type_basic)),
 		data_size - sizeof(struct audio_cal_type_basic));
 
+	/* reset buffer stale flag */
+	cal_block->cal_stale = false;
+
 err:
 	mutex_unlock(&cal_type->lock);
 done:
 	return ret;
 }
 EXPORT_SYMBOL(cal_utils_set_cal);
+
+/**
+ * cal_utils_mark_cal_used
+ *
+ * @cal_block: pointer to cal block
+ */
+void cal_utils_mark_cal_used(struct cal_block_data *cal_block)
+{
+	if (cal_block)
+		cal_block->cal_stale = true;
+}
+EXPORT_SYMBOL(cal_utils_mark_cal_used);
+
+/**
+ * cal_utils_is_cal_stale
+ *
+ * @cal_block: pointer to cal block
+ *
+ * Returns true if cal block is stale, false otherwise
+ */
+bool cal_utils_is_cal_stale(struct cal_block_data *cal_block)
+{
+	if ((cal_block) && (cal_block->cal_stale))
+		return true;
+
+	return false;
+}
+EXPORT_SYMBOL(cal_utils_is_cal_stale);

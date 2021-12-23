@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -145,7 +145,6 @@
 #define LPASS_BE_QUAT_TDM_TX_6 "QUAT_TDM_TX_6"
 #define LPASS_BE_QUAT_TDM_RX_7 "QUAT_TDM_RX_7"
 #define LPASS_BE_QUAT_TDM_TX_7 "QUAT_TDM_TX_7"
-#define LPASS_BE_AFE_LOOPBACK_TX "AFE_LOOPBACK_TX"
 #define LPASS_BE_QUIN_TDM_RX_0 "QUIN_TDM_RX_0"
 #define LPASS_BE_QUIN_TDM_TX_0 "QUIN_TDM_TX_0"
 #define LPASS_BE_QUIN_TDM_RX_1 "QUIN_TDM_RX_1"
@@ -212,6 +211,8 @@ enum {
 	MSM_FRONTEND_DAI_MULTIMEDIA18,
 	MSM_FRONTEND_DAI_MULTIMEDIA19,
 	MSM_FRONTEND_DAI_MULTIMEDIA20,
+	MSM_FRONTEND_DAI_MULTIMEDIA21,
+	MSM_FRONTEND_DAI_MULTIMEDIA22,
 	MSM_FRONTEND_DAI_MULTIMEDIA28,
 	MSM_FRONTEND_DAI_MULTIMEDIA29,
 	MSM_FRONTEND_DAI_VOIP,
@@ -398,7 +399,6 @@ enum {
 	MSM_BACKEND_DAI_INT5_MI2S_TX,
 	MSM_BACKEND_DAI_INT6_MI2S_RX,
 	MSM_BACKEND_DAI_INT6_MI2S_TX,
-	MSM_BACKEND_DAI_AFE_LOOPBACK_TX,
 	MSM_BACKEND_DAI_MAX,
 };
 
@@ -436,6 +436,8 @@ enum {
 #define ADM_PP_PARAM_LATENCY_BIT		2
 #define BE_DAI_PORT_SESSIONS_IDX_MAX		4
 #define BE_DAI_FE_SESSIONS_IDX_MAX		2
+
+#define NUM_BEX_MODULES 16
 
 enum {
 	ADM_TOPOLOGY_CAL_TYPE_IDX = 0,
@@ -491,6 +493,15 @@ struct msm_pcm_stream_app_type_cfg {
 	int sample_rate;
 };
 
+struct msm_media_vibration_volume_params {
+	uint32_t beat_enhancement_volume_l;
+	uint32_t beat_enhancement_volume_r;
+	uint32_t level_volume_l;
+	uint32_t level_volume_r;
+	uint32_t audio_volume_l;
+	uint32_t audio_volume_r;
+};
+
 /* dai_id: front-end ID,
  * dspst_id:  DSP audio stream ID
  * stream_type: playback or capture
@@ -525,8 +536,4 @@ int msm_pcm_routing_reg_stream_app_type_cfg(
 int msm_pcm_routing_get_stream_app_type_cfg(
 	int fedai_id, int session_type, int *be_id,
 	struct msm_pcm_stream_app_type_cfg *cfg_data);
-int msm_pcm_routing_send_chmix_cfg(int fe_id, int ip_channel_cnt,
-				int op_channel_cnt, int *ch_wght_coeff,
-				int session_type, bool use_default_chmap,
-				char *channel_map);
 #endif /*_MSM_PCM_H*/

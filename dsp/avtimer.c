@@ -25,9 +25,6 @@
 #include <linux/of.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
-#if IS_ENABLED(CONFIG_AVTIMER_LEGACY)
-#include <media/msmb_isp.h>
-#endif
 #include <ipc/apr.h>
 #include <dsp/q6core.h>
 
@@ -73,7 +70,6 @@ struct avtimer_t {
 };
 
 static struct avtimer_t avtimer;
-static void avcs_set_isp_fptr(bool enable);
 
 static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 {
@@ -317,29 +313,6 @@ int avcs_core_query_timer(uint64_t *avtimer_tick)
 }
 EXPORT_SYMBOL(avcs_core_query_timer);
 
-#if IS_ENABLED(CONFIG_AVTIMER_LEGACY)
-static void avcs_set_isp_fptr(bool enable)
-{
-	struct avtimer_fptr_t av_fptr;
-
-	if (enable) {
-		av_fptr.fptr_avtimer_open = avcs_core_open;
-		av_fptr.fptr_avtimer_enable = avcs_core_disable_power_collapse;
-		av_fptr.fptr_avtimer_get_time = avcs_core_query_timer;
-		msm_isp_set_avtimer_fptr(av_fptr);
-	} else {
-		av_fptr.fptr_avtimer_open = NULL;
-		av_fptr.fptr_avtimer_enable = NULL;
-		av_fptr.fptr_avtimer_get_time = NULL;
-		msm_isp_set_avtimer_fptr(av_fptr);
-	}
-}
-#else
-static void avcs_set_isp_fptr(bool enable)
-{
-}
-#endif
-
 static int avtimer_open(struct inode *inode, struct file *file)
 {
 	return avcs_core_disable_power_collapse(1);
@@ -496,8 +469,6 @@ static int dev_avtimer_probe(struct platform_device *pdev)
 	else
 		avtimer.clk_mult = clk_mult_val;
 
-	avcs_set_isp_fptr(true);
-
 	pr_debug("%s: avtimer.clk_div = %d, avtimer.clk_mult = %d\n",
 		 __func__, avtimer.clk_div, avtimer.clk_mult);
 	return 0;
@@ -529,7 +500,6 @@ static int dev_avtimer_remove(struct platform_device *pdev)
 	cdev_del(&avtimer.myc);
 	class_destroy(avtimer.avtimer_class);
 	unregister_chrdev_region(MKDEV(major, 0), 1);
-	avcs_set_isp_fptr(false);
 
 	return 0;
 }
@@ -544,10 +514,11 @@ static struct platform_driver dev_avtimer_driver = {
 	.driver = {
 		.name = "dev_avtimer",
 		.of_match_table = avtimer_machine_of_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
-int  __init avtimer_init(void)
+static int  __init avtimer_init(void)
 {
 	s32 rc;
 
@@ -565,10 +536,14 @@ error_platform_driver:
 	return rc;
 }
 
-void avtimer_exit(void)
+static void __exit avtimer_exit(void)
 {
+	pr_debug("%s: avtimer_exit\n", __func__);
 	platform_driver_unregister(&dev_avtimer_driver);
 }
+
+module_init(avtimer_init);
+module_exit(avtimer_exit);
 
 MODULE_DESCRIPTION("avtimer driver");
 MODULE_LICENSE("GPL v2");

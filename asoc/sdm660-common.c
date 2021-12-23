@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -50,18 +50,6 @@ enum {
 };
 
 bool codec_reg_done;
-
-struct tdm_dai_data {
-	DECLARE_BITMAP(status_mask, 3);
-	u32 rate;
-	u32 channels;
-	u32 bitwidth;
-	u32 num_group_ports;
-	struct afe_clk_set clk_set; /* hold LPASS clock config. */
-	union afe_port_group_config group_cfg; /* hold tdm group config */
-	struct afe_tdm_port_config port_cfg; /* hold tdm config */
-};
-
 
 /* TDM default config */
 static struct dev_config tdm_rx_cfg[TDM_INTERFACE_MAX][TDM_PORT_MAX] = {
@@ -2815,91 +2803,6 @@ void msm_mi2s_snd_shutdown(struct snd_pcm_substream *substream)
 }
 EXPORT_SYMBOL(msm_mi2s_snd_shutdown);
 
-static int msm_get_tdm_mode(u32 port_id)
-{
-	int tdm_mode;
-
-	switch (port_id) {
-	case AFE_PORT_ID_PRIMARY_TDM_RX:
-	case AFE_PORT_ID_PRIMARY_TDM_TX:
-		tdm_mode = TDM_PRI;
-	break;
-	case AFE_PORT_ID_SECONDARY_TDM_RX:
-	case AFE_PORT_ID_SECONDARY_TDM_TX:
-		tdm_mode = TDM_SEC;
-	break;
-	case AFE_PORT_ID_TERTIARY_TDM_RX:
-	case AFE_PORT_ID_TERTIARY_TDM_TX:
-		tdm_mode = TDM_TERT;
-	break;
-	case AFE_PORT_ID_QUATERNARY_TDM_RX:
-	case AFE_PORT_ID_QUATERNARY_TDM_TX:
-		tdm_mode = TDM_QUAT;
-	break;
-	case AFE_PORT_ID_QUINARY_TDM_RX:
-	case AFE_PORT_ID_QUINARY_TDM_TX:
-		tdm_mode = TDM_QUIN;
-	break;
-	default:
-		pr_err("%s: Invalid port id: %d\n", __func__, port_id);
-		tdm_mode = -EINVAL;
-	}
-	return tdm_mode;
-}
-
-int msm_tdm_snd_startup(struct snd_pcm_substream *substream)
-{
-	int ret = 0;
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
-	struct snd_soc_card *card = rtd->card;
-	struct msm_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
-	struct tdm_dai_data *dai_data = dev_get_drvdata(cpu_dai->dev);
-	int tdm_mode = msm_get_tdm_mode(cpu_dai->id);
-
-	if (tdm_mode < 0) {
-		dev_err(rtd->card->dev, "%s: Invalid tdm_mode\n", __func__);
-		return tdm_mode;
-	}
-	dai_data->clk_set.enable = true;
-	ret = afe_set_lpass_clock_v2(cpu_dai->id, &dai_data->clk_set);
-	if (ret < 0)
-		pr_err("%s: afe lpass clock failed, err:%d\n",
-			__func__, ret);
-	/* currently only supporting TDM_RX_0 and TDM_TX_0 */
-	if (pdata->mi2s_gpio_p[tdm_mode])
-		ret = msm_cdc_pinctrl_select_active_state(
-			pdata->mi2s_gpio_p[tdm_mode]);
-	return ret;
-}
-EXPORT_SYMBOL(msm_tdm_snd_startup);
-
-void msm_tdm_snd_shutdown(struct snd_pcm_substream *substream)
-{
-	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
-	struct snd_soc_card *card = rtd->card;
-	struct msm_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
-	struct tdm_dai_data *dai_data = dev_get_drvdata(cpu_dai->dev);
-	int tdm_mode = msm_get_tdm_mode(cpu_dai->id);
-	int ret;
-
-	if (tdm_mode < 0) {
-		dev_err(rtd->card->dev, "%s: Invalid tdm_mode\n", __func__);
-		return;
-	}
-	dai_data->clk_set.enable = false;
-	ret = afe_set_lpass_clock_v2(cpu_dai->id, &dai_data->clk_set);
-	if (ret < 0)
-		pr_err("%s: afe lpass clock failed, err:%d\n", __func__, ret);
-
-	/* currently only supporting TDM_RX_0 and TDM_TX_0 */
-	if (pdata->mi2s_gpio_p[tdm_mode])
-		msm_cdc_pinctrl_select_sleep_state(
-			pdata->mi2s_gpio_p[tdm_mode]);
-}
-EXPORT_SYMBOL(msm_tdm_snd_shutdown);
-
 /* Validate whether US EU switch is present or not */
 static int msm_prepare_us_euro(struct snd_soc_card *card)
 {
@@ -2921,123 +2824,27 @@ static int msm_prepare_us_euro(struct snd_soc_card *card)
 	return ret;
 }
 
-
-static bool msm_usbc_swap_gnd_mic(struct snd_soc_codec *codec, bool active)
-{
-	int value = 0;
-	bool ret = false;
-	struct snd_soc_card *card = codec->component.card;
-	struct msm_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
-	struct pinctrl_state *en2_pinctrl_active;
-	struct pinctrl_state *en2_pinctrl_sleep;
-
-	if (!pdata->usbc_en2_gpio_p) {
-		if (active) {
-			/* if active and usbc_en2_gpio undefined, get pin */
-			pdata->usbc_en2_gpio_p = devm_pinctrl_get(card->dev);
-			if (IS_ERR_OR_NULL(pdata->usbc_en2_gpio_p)) {
-				dev_err(card->dev,
-					"%s: Can't get EN2 gpio pinctrl:%ld\n",
-					__func__,
-					PTR_ERR(pdata->usbc_en2_gpio_p));
-				pdata->usbc_en2_gpio_p = NULL;
-				return false;
-			}
-		} else {
-			/* if not active and usbc_en2_gpio undefined, return */
-			return false;
-		}
-	}
-
-	pdata->usbc_en2_gpio = of_get_named_gpio(card->dev->of_node,
-				    "qcom,usbc-analog-en2-gpio", 0);
-	if (!gpio_is_valid(pdata->usbc_en2_gpio)) {
-		dev_err(card->dev, "%s, property %s not in node %s\n",
-			__func__, "qcom,usbc-analog-en2-gpio",
-			card->dev->of_node->full_name);
-		return false;
-	}
-
-	en2_pinctrl_active = pinctrl_lookup_state(
-					pdata->usbc_en2_gpio_p, "aud_active");
-	if (IS_ERR_OR_NULL(en2_pinctrl_active)) {
-		dev_err(card->dev,
-			"%s: Cannot get aud_active pinctrl state:%ld\n",
-			__func__, PTR_ERR(en2_pinctrl_active));
-		ret = false;
-		goto err_lookup_state;
-	}
-
-	en2_pinctrl_sleep = pinctrl_lookup_state(
-					pdata->usbc_en2_gpio_p, "aud_sleep");
-	if (IS_ERR_OR_NULL(en2_pinctrl_sleep)) {
-		dev_err(card->dev,
-			"%s: Cannot get aud_sleep pinctrl state:%ld\n",
-			__func__, PTR_ERR(en2_pinctrl_sleep));
-		ret = false;
-		goto err_lookup_state;
-	}
-
-	/* if active and usbc_en2_gpio_p defined, swap using usbc_en2_gpio_p */
-	if (active) {
-		dev_dbg(codec->dev, "%s: enter\n", __func__);
-		if (pdata->usbc_en2_gpio_p) {
-			value = gpio_get_value_cansleep(pdata->usbc_en2_gpio);
-			if (value)
-				pinctrl_select_state(pdata->usbc_en2_gpio_p,
-							en2_pinctrl_sleep);
-			else
-				pinctrl_select_state(pdata->usbc_en2_gpio_p,
-							en2_pinctrl_active);
-		} else if (pdata->usbc_en2_gpio >= 0) {
-			value = gpio_get_value_cansleep(pdata->usbc_en2_gpio);
-			gpio_set_value_cansleep(pdata->usbc_en2_gpio, !value);
-		}
-		pr_debug("%s: swap select switch %d to %d\n", __func__,
-			value, !value);
-		ret = true;
-	} else {
-		/* if not active, release usbc_en2_gpio_p pin */
-		pinctrl_select_state(pdata->usbc_en2_gpio_p,
-					en2_pinctrl_sleep);
-	}
-
-err_lookup_state:
-	devm_pinctrl_put(pdata->usbc_en2_gpio_p);
-	pdata->usbc_en2_gpio_p = NULL;
-	return ret;
-}
-
 static bool msm_swap_gnd_mic(struct snd_soc_codec *codec, bool active)
 {
 	struct snd_soc_card *card = codec->component.card;
 	struct msm_asoc_mach_data *pdata =
 				snd_soc_card_get_drvdata(card);
 	int value = 0;
-	bool ret = 0;
 
-	if (!mbhc_cfg.enable_usbc_analog) {
-		if (pdata->us_euro_gpio_p) {
-			value = msm_cdc_pinctrl_get_state(
-						pdata->us_euro_gpio_p);
-			if (value)
-				msm_cdc_pinctrl_select_sleep_state(
+	if (pdata->us_euro_gpio_p) {
+		value = msm_cdc_pinctrl_get_state(pdata->us_euro_gpio_p);
+		if (value)
+			msm_cdc_pinctrl_select_sleep_state(
 							pdata->us_euro_gpio_p);
-			else
-				msm_cdc_pinctrl_select_active_state(
+		else
+			msm_cdc_pinctrl_select_active_state(
 							pdata->us_euro_gpio_p);
-		} else if (pdata->us_euro_gpio >= 0) {
-			value = gpio_get_value_cansleep(pdata->us_euro_gpio);
-			gpio_set_value_cansleep(pdata->us_euro_gpio, !value);
-		}
-		pr_debug("%s: swap select switch %d to %d\n",
-			  __func__, value, !value);
-		ret = true;
-	} else {
-		/* if usbc is defined, swap using usbc_en2 */
-		ret = msm_usbc_swap_gnd_mic(codec, active);
+	} else if (pdata->us_euro_gpio >= 0) {
+		value = gpio_get_value_cansleep(pdata->us_euro_gpio);
+		gpio_set_value_cansleep(pdata->us_euro_gpio, !value);
 	}
-	return ret;
+	pr_debug("%s: swap select switch %d to %d\n", __func__, value, !value);
+	return true;
 }
 
 static int msm_populate_dai_link_component_of_node(
@@ -3140,30 +2947,10 @@ codec_dai:
 				index = of_property_match_string(cdev->of_node,
 							"asoc-codec-names",
 							PMIC_INT_ANALOG_CODEC);
-				phandle = of_parse_phandle(
-							cdev->of_node,
-							"asoc-codec",
-							index);
-				dai_link[i].codecs[ANA_CDC].of_node =
-								phandle;
-			}
-		}
-		if (pdata->snd_card_val == INT_DIG_SND_CARD) {
-			if ((dai_link[i].id ==
-					MSM_BACKEND_DAI_INT0_MI2S_RX) ||
-			    (dai_link[i].id ==
-					MSM_BACKEND_DAI_INT1_MI2S_RX) ||
-			    (dai_link[i].id ==
-					MSM_BACKEND_DAI_INT2_MI2S_TX) ||
-			    (dai_link[i].id ==
-					MSM_BACKEND_DAI_INT3_MI2S_TX)) {
-				index = of_property_match_string(cdev->of_node,
-							"asoc-codec-names",
-							MSM_INT_DIGITAL_CODEC);
 				phandle = of_parse_phandle(cdev->of_node,
 							   "asoc-codec",
 							   index);
-				dai_link[i].codec_of_node = phandle;
+				dai_link[i].codecs[ANA_CDC].of_node = phandle;
 			}
 		}
 	}
@@ -3459,10 +3246,6 @@ static const struct of_device_id sdm660_asoc_machine_of_match[]  = {
 	  .data = "tasha_codec"},
 	{ .compatible = "qcom,sdm670-asoc-snd-tavil",
 	  .data = "tavil_codec"},
-	{ .compatible = "qcom,qcs605-dig-asoc-snd",
-	  .data = "digital_codec"},
-	{ .compatible = "qcom,qcs605-asoc-snd-tavil",
-	  .data = "tavil_codec"},
 	{},
 };
 
@@ -3473,7 +3256,6 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 	const char *mclk = "qcom,msm-mclk-freq";
 	int ret = -EINVAL, id;
 	const struct of_device_id *match;
-	const char *usb_c_dt = "qcom,msm-mbhc-usbc-audio-supported";
 
 	pdata = devm_kzalloc(&pdev->dev,
 			     sizeof(struct msm_asoc_mach_data),
@@ -3509,11 +3291,6 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 		ret = msm_int_cdc_init(pdev, pdata, &card, &mbhc_cfg);
 		if (ret)
 			goto err;
-	} else if (!strcmp(match->data, "digital_codec")) {
-		pdata->snd_card_val = INT_DIG_SND_CARD;
-		ret = msm_int_cdc_init(pdev, pdata, &card, NULL);
-		if (ret)
-			goto err;
 	} else {
 		dev_err(&pdev->dev,
 			"%s: Not a matching DT sound node\n", __func__);
@@ -3534,11 +3311,6 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 					"qcom,cdc-ext-spk-gpios", 0);
 	}
 
-	if (pdata->snd_card_val == INT_DIG_SND_CARD) {
-		/*reading the gpio configurations from dtsi file*/
-		pdata->dmic_gpio_p = of_parse_phandle(pdev->dev.of_node,
-					"qcom,cdc-dmic-gpios", 0);
-	}
 	pdata->mi2s_gpio_p[PRIM_MI2S] = of_parse_phandle(pdev->dev.of_node,
 					"qcom,pri-mi2s-gpios", 0);
 	pdata->mi2s_gpio_p[SEC_MI2S] = of_parse_phandle(pdev->dev.of_node,
@@ -3567,9 +3339,6 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 			"qcom,us-euro-gpios");
 		mbhc_cfg.swap_gnd_mic = msm_swap_gnd_mic;
 	}
-
-	if (of_find_property(pdev->dev.of_node, usb_c_dt, NULL))
-		mbhc_cfg.swap_gnd_mic = msm_swap_gnd_mic;
 
 	ret = msm_prepare_us_euro(card);
 	if (ret)
@@ -3610,7 +3379,7 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 			ret);
 		goto err;
 	}
-	if (pdata->snd_card_val > INT_MAX_SND_CARD)
+	if (pdata->snd_card_val != INT_SND_CARD)
 		msm_ext_register_audio_notifier(pdev);
 
 	return 0;
@@ -3641,7 +3410,7 @@ static int msm_asoc_machine_remove(struct platform_device *pdev)
 	struct snd_soc_card *card = platform_get_drvdata(pdev);
 	struct msm_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
 
-	if (pdata->snd_card_val <= INT_MAX_SND_CARD)
+	if (pdata->snd_card_val == INT_SND_CARD)
 		mutex_destroy(&pdata->cdc_int_mclk0_mutex);
 
 	if (gpio_is_valid(pdata->us_euro_gpio)) {
@@ -3657,7 +3426,7 @@ static int msm_asoc_machine_remove(struct platform_device *pdev)
 		pdata->hph_en0_gpio = 0;
 	}
 
-	if (pdata->snd_card_val > INT_MAX_SND_CARD)
+	if (pdata->snd_card_val != INT_SND_CARD)
 		audio_notifier_deregister("sdm660");
 
 	snd_soc_unregister_card(card);
@@ -3670,6 +3439,7 @@ static struct platform_driver sdm660_asoc_machine_driver = {
 		.owner = THIS_MODULE,
 		.pm = &snd_soc_pm_ops,
 		.of_match_table = sdm660_asoc_machine_of_match,
+		.suppress_bind_attrs = true,
 	},
 	.probe = msm_asoc_machine_probe,
 	.remove = msm_asoc_machine_remove,

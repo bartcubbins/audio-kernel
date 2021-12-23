@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,12 +27,8 @@
 		((MAX_MODULES_IN_TOPO + 1) * sizeof(uint32_t))
 #define AUD_PROC_BLOCK_SIZE	4096
 #define AUD_VOL_BLOCK_SIZE	4096
-#define AUD_PROC_PERSIST_BLOCK_SIZE	(2 * 1024 * 1020)
 #define AUDIO_RX_CALIBRATION_SIZE	(AUD_PROC_BLOCK_SIZE + \
 						AUD_VOL_BLOCK_SIZE)
-#define SESSION_TYPE_RX 0
-#define SESSION_TYPE_TX 1
-
 enum {
 	ADM_CUSTOM_TOP_CAL = 0,
 	ADM_AUDPROC_CAL,
@@ -42,7 +38,6 @@ enum {
 	ADM_RTAC_APR_CAL,
 	ADM_SRS_TRUMEDIA,
 	ADM_RTAC_AUDVOL_CAL,
-	ADM_LSM_AUDPROC_PERSISTENT_CAL,
 	ADM_MAX_CAL_TYPES
 };
 
@@ -105,9 +100,12 @@ int adm_send_params_v5(int port_id, int copp_idx, char *params,
 int adm_dolby_dap_send_params(int port_id, int copp_idx, char *params,
 			      uint32_t params_length);
 
+int adm_ahc_send_params(int port_id, int copp_idx, char *params,
+			uint32_t params_length);
+
 int adm_open(int port, int path, int rate, int mode, int topology,
 			   int perf_mode, uint16_t bits_per_sample,
-			   int app_type, int acdbdev_id, int session_type);
+			   int app_type, int acdbdev_id);
 
 int adm_map_rtac_block(struct rtac_cal_block_data *cal_block);
 
@@ -133,8 +131,6 @@ int adm_get_lowlatency_copp_id(int port_id);
 int adm_set_multi_ch_map(char *channel_map, int path);
 
 int adm_get_multi_ch_map(char *channel_map, int path);
-
-void adm_set_port_multi_ch_map(char *channel_map, int port_id);
 
 int adm_validate_and_get_port_index(int port_id);
 
@@ -191,8 +187,18 @@ int adm_swap_speaker_channels(int port_id, int copp_idx, int sample_rate,
 int adm_programable_channel_mixer(int port_id, int copp_idx, int session_id,
 			int session_type,
 			struct msm_pcm_channel_mixer *ch_mixer,
-			int channel_index, bool use_default_chmap,
-			char *ch_map);
-void msm_dts_srs_acquire_lock(void);
-void msm_dts_srs_release_lock(void);
+			int channel_index);
+int adm_set_beatenhancer_volume(int port_id, int copp_idx,
+				uint32_t volume_l, uint32_t volume_r);
+int adm_set_level_volume(int port_id, int copp_idx,
+				uint32_t volume_l, uint32_t volume_r);
+int adm_set_inverse_volume(int port_id, int copp_idx,
+				uint32_t volume_l, uint32_t volume_r);
+int adm_set_delay_module_state(int port_id, int copp_idx, uint32_t enable);
+
+int adm_set_all_bex_modules(int port_id, int copp_idx,
+				uint32_t module_id, uint32_t param_id, uint32_t enable_flag);
+int adm_set_rampup_clipper(int port_id, int copp_idx, uint32_t enable,
+				uint32_t module_id);
+
 #endif /* __Q6_ADM_V2_H__ */

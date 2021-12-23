@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -87,19 +87,15 @@ struct sdm660_codec {
 
 enum {
 	INT_SND_CARD,
-	INT_DIG_SND_CARD,
-	INT_MAX_SND_CARD = INT_DIG_SND_CARD,
 	EXT_SND_CARD_TASHA,
 	EXT_SND_CARD_TAVIL,
 };
 
 struct msm_asoc_mach_data {
 	int us_euro_gpio; /* used by gpio driver API */
-	int usbc_en2_gpio; /* used by gpio driver API */
 	int hph_en1_gpio;
 	int hph_en0_gpio;
 	struct device_node *us_euro_gpio_p; /* used by pinctrl API */
-	struct pinctrl *usbc_en2_gpio_p; /* used by pinctrl API */
 	struct device_node *hph_en1_gpio_p; /* used by pinctrl API */
 	struct device_node *hph_en0_gpio_p; /* used by pinctrl API */
 	struct device_node *pdm_gpio_p; /* used by pinctrl API */
@@ -122,10 +118,6 @@ struct msm_asoc_mach_data {
 	struct mutex cdc_int_mclk0_mutex;
 	struct delayed_work disable_int_mclk0_work;
 	struct afe_clk_set digital_cdc_core_clk;
-	int gpio_linein_det;
-	int gpio_lineout_det;
-	int linein_det_swh;
-	int lineout_det_swh;
 };
 
 int msm_common_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
@@ -134,8 +126,6 @@ int msm_aux_pcm_snd_startup(struct snd_pcm_substream *substream);
 void msm_aux_pcm_snd_shutdown(struct snd_pcm_substream *substream);
 int msm_mi2s_snd_startup(struct snd_pcm_substream *substream);
 void msm_mi2s_snd_shutdown(struct snd_pcm_substream *substream);
-int msm_tdm_snd_startup(struct snd_pcm_substream *substream);
-void msm_tdm_snd_shutdown(struct snd_pcm_substream *substream);
 int msm_common_snd_controls_size(void);
 void msm_set_codec_reg_done(bool done);
 #endif

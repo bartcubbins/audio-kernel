@@ -4,7 +4,7 @@ include $(srctree)/techpack/audio/config/sdm845auto.conf
 export
 endif
 ifeq ($(CONFIG_ARCH_SDM670), y)
-include $(srctree)/techpack/audio/config/sdm710auto_static.conf
+include $(srctree)/techpack/audio/config/sdm670auto.conf
 export
 endif
 ifeq ($(CONFIG_ARCH_SDXPOORWILLS), y)
@@ -28,7 +28,7 @@ LINUXINCLUDE    += \
 endif
 ifeq ($(CONFIG_ARCH_SDM670), y)
 LINUXINCLUDE    += \
-                -include $(srctree)/techpack/audio/config/sdm710autoconf.h
+                -include $(srctree)/techpack/audio/config/sdm670autoconf.h
 endif
 ifeq ($(CONFIG_ARCH_SDXPOORWILLS), y)
 LINUXINCLUDE    += \

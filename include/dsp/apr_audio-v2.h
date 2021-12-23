@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -680,6 +680,94 @@ struct audproc_enable_param_t {
 	uint32_t                  enable;
 };
 
+#define AUDPROC_MODULE_ID_BE_VOL_LIMITER_1  0x10002110
+#define AUDPROC_MODULE_ID_BE_VOL_LIMITER_6  0x10002160
+#define AUDPROC_PARAM_ID_BE_VOL_ENABLE      0x10002101
+#define AUDPROC_PARAM_ID_BE_VOL_CTRL        0x10002102
+
+struct audproc_beat_enhancer_volume_params {
+	struct adm_cmd_set_pp_params_v5 params;
+	struct adm_param_data_v5 data;
+	uint32_t	volume_l;
+	uint32_t	volume_r;
+} __packed;
+
+#define AUDPROC_MODULE_ID_INV_VOL_CTRL  0x10002200
+#define AUDPROC_PARAM_ID_INV_VOL_ENABLE 0x10002201
+#define AUDPROC_PARAM_ID_INV_VOL_CTRL   0x10002202
+
+struct audproc_inverse_audio_volume_params {
+	struct adm_cmd_set_pp_params_v5 params;
+	struct adm_param_data_v5 data;
+	uint32_t	volume_l;
+	uint32_t	volume_r;
+} __packed;
+
+#define AUDPROC_MODULE_ID_LOG10GAIN              0x10002080
+#define AUDPROC_PARAM_ID_LOG10GAIN_ENABLE        0x10002081
+
+#define AUDPROC_MODULE_ID_NOISE_CUT              0x10002060
+#define AUDPROC_PARAM_ID_NOISE_CUT_ENABLE        0x10002061
+
+#define AUDPROC_MODULE_ID_NEGATIVE_CUT           0x10002040
+#define AUDPROC_PARAM_ID_NEGATIVE_CUT_ENABLE     0x10002041
+
+#define AUDPROC_MODULE_ID_VOLUME_LIMITER         0x10002100
+#define AUDPROC_MODULE_ID_VOLUME_LIMITER_2       0x10002120
+#define AUDPROC_MODULE_ID_VOLUME_LIMITER_3       0x10002130
+#define AUDPROC_MODULE_ID_VOLUME_LIMITER_4       0x10002140
+#define AUDPROC_MODULE_ID_VOLUME_LIMITER_5       0x10002150
+
+#define AUDPROC_MODULE_ID_DUAL_MONO              0x10002030
+#define AUDPROC_MODULE_ID_DUAL_MONO1             0x10012030
+#define AUDPROC_PARAM_ID_DUAL_MONO_ENABLE        0x10002031
+
+#define AUDPROC_MODULE_ID_ABS                    0x10002020
+#define AUDPROC_PARAM_ID_ABS_ENABLE              0x10002021
+
+#define AUDPROC_MODULE_ID_ADD1                   0x10002050
+#define AUDPROC_PARAM_ID_ADD1_ENABLE             0x10002051
+
+#define AUDPROC_MODULE_ID_FORMAT_CONVERTER       0x10005000
+#define AUDPROC_PARAM_ID_FORMAT_CONVERTER_ENABLE 0x10005001
+
+#define AUDPROC_MODULE_ID_MCHAN_IIR_2            0x1011031F
+#define AUDPROC_MODULE_ID_MCHAN_IIR_3            0x1021031F
+#define AUDPROC_MODULE_ID_MCHAN_IIR_4            0x1031031F
+#define AUDPROC_MODULE_ID_MCHAN_IIR_5            0x1041031F
+#define AUDPROC_PARAM_ID_MCHAN_IIR_ENABLE        0x0001031C
+
+#define AUDPROC_MODULE_ID_DELAY                  0x10004000
+#define AUDPROC_MODULE_ID_DELAY_1                0x10004010
+#define AUDPROC_PARAM_ID_DELAY_ENABLE            0x10004001
+
+struct audproc_enable_module_mono {
+	struct adm_cmd_set_pp_params_v5 params;
+	struct adm_param_data_v5 data;
+	uint32_t	enable_flag;
+} __packed;
+
+struct audproc_enable_module_stereo {
+	struct adm_cmd_set_pp_params_v5 params;
+	struct adm_param_data_v5 data;
+	uint32_t	num_channels;
+	uint32_t	enable_left;
+	uint32_t	enable_right;
+} __packed;
+
+#define AUDPROC_MODULE_ID_RAMP_UP_CLIPPER_1      0x10101100
+#define AUDPROC_PARAM_ID_RAMP_UP_CLIPPER_ENABLE  0x10101001
+
+struct audproc_enable_rampup_clipper_module {
+	struct adm_cmd_set_pp_params_v5 params;
+	struct adm_param_data_v5 data;
+	uint32_t	num_channels;
+	uint32_t	clipper_enable_left;
+	uint32_t	clipper_enable_right;
+	uint32_t	gain_fade_in_enable_left;
+	uint32_t	gain_fade_in_enable_right;
+} __packed;
+
 /*
  * Allows a client to control the gains on various session-to-COPP paths.
  */
@@ -974,7 +1062,6 @@ struct adm_cmd_connect_afe_port_v5 {
 #define INT_FM_TX 0x3005
 #define RT_PROXY_PORT_001_RX	0x2000
 #define RT_PROXY_PORT_001_TX	0x2001
-#define AFE_LOOPBACK_TX	0x6001
 #define DISPLAY_PORT_RX	0x6020
 
 #define AFE_PORT_INVALID 0xFFFF
@@ -2540,18 +2627,6 @@ struct afe_param_id_slimbus_cfg {
 /* Minor version used for tracking USB audio  configuration */
 #define AFE_API_MINIOR_VERSION_USB_AUDIO_CONFIG 0x1
 
-/* ID of the parameter used to set the latency mode of the
- * USB audio device.
- */
-#define AFE_PARAM_ID_PORT_LATENCY_MODE_CONFIG  0x000102B3
-
-/* Minor version used for tracking USB audio latency mode */
-#define AFE_API_MINOR_VERSION_USB_AUDIO_LATENCY_MODE 0x1
-
-/* Supported AFE port latency modes */
-#define AFE_PORT_DEFAULT_LATENCY_MODE     0x0
-#define AFE_PORT_LOW_LATENCY_MODE         0x1
-
 /* Payload of the AFE_PARAM_ID_USB_AUDIO_DEV_PARAMS parameter used by
  * AFE_MODULE_AUDIO_DEV_INTERFACE.
  */
@@ -2572,17 +2647,6 @@ struct afe_param_id_usb_audio_dev_lpcm_fmt {
 /* Endianness of actual end USB audio device */
 	u32                  endian;
 } __packed;
-
-struct afe_param_id_usb_audio_dev_latency_mode {
-/* Minor version used for tracking USB audio device parameter.
- * Supported values: AFE_API_MINOR_VERSION_USB_AUDIO_LATENCY_MODE
- */
-	u32                  minor_version;
-/* latency mode for the USB audio device */
-	u32                  mode;
-} __packed;
-
-
 
 /* ID of the parameter used by AFE_PARAM_ID_USB_AUDIO_CONFIG to configure
  * USB audio interface. It should be used with AFE_MODULE_AUDIO_DEV_INTERFACE
@@ -2629,9 +2693,7 @@ struct afe_param_id_usb_audio_cfg {
 /* device token of actual end USB aduio device */
 	u32                  dev_token;
 /* endianness of this interface */
-	u32                  endian;
-/* service interval */
-	u32                  service_interval;
+	u32                   endian;
 } __packed;
 
 struct afe_usb_audio_dev_param_command {
@@ -2641,7 +2703,6 @@ struct afe_usb_audio_dev_param_command {
 	union {
 		struct afe_param_id_usb_audio_dev_params usb_dev;
 		struct afe_param_id_usb_audio_dev_lpcm_fmt lpcm_fmt;
-		struct afe_param_id_usb_audio_dev_latency_mode latency_config;
 	};
 } __packed;
 
@@ -3165,6 +3226,10 @@ struct afe_abr_enc_cfg_t {
 	 * Information to set up IMC between decoder and encoder.
 	 */
 	struct afe_imc_dec_enc_info imc_info;
+	/*
+	 * Flag to indicate whether ABR is enabled.
+	 */
+	bool is_abr_enabled;
 } __packed;
 
 #define AFE_PARAM_ID_APTX_SYNC_MODE  0x00013205
@@ -3255,6 +3320,12 @@ struct afe_param_id_aptx_sync_mode {
  * is transmitted/received over Slimbus lines.
  */
 #define AFE_SB_DATA_FORMAT_GENERIC_COMPRESSED    0x3
+
+/*
+ * Parameter to send frame control size
+ * to DSP for AAC encoder in AFE.
+ */
+#define AFE_PARAM_ID_AAC_FRM_SIZE_CONTROL 0x000132EA
 
 /*
  * ID for AFE port module. This will be used to define port properties.
@@ -3424,6 +3495,23 @@ struct asm_aac_enc_cfg_v2_t {
 	 * The sampling rate must not change during encoding.
 	 */
 	uint32_t     sample_rate;
+} __packed;
+
+/* Structure to control frame size of AAC encoded frames. */
+struct asm_aac_frame_size_control_t {
+	/* Type of frame size control: MTU_SIZE / PEAK_BIT_RATE*/
+	uint32_t ctl_type;
+	/*
+	 * Control value
+	 * MTU_SIZE: MTU size in bytes
+	 * PEAK_BIT_RATE: Peak bitrate in bits per second.
+	 */
+	uint32_t ctl_value;
+} __packed;
+
+struct asm_aac_enc_cfg_t {
+	struct asm_aac_enc_cfg_v2_t aac_cfg;
+	struct asm_aac_frame_size_control_t frame_ctl;
 } __packed;
 
 /* FMT ID for apt-X Classic */
@@ -3620,7 +3708,7 @@ struct afe_port_media_type_t {
 
 union afe_enc_config_data {
 	struct asm_sbc_enc_cfg_t sbc_config;
-	struct asm_aac_enc_cfg_v2_t aac_config;
+	struct asm_aac_enc_cfg_t aac_config;
 	struct asm_custom_enc_cfg_t  custom_config;
 	struct asm_celt_enc_cfg_t  celt_config;
 	struct asm_aptx_enc_cfg_t  aptx_config;
@@ -3717,6 +3805,7 @@ union afe_port_config {
 	struct afe_param_id_tdm_cfg               tdm;
 	struct afe_param_id_usb_audio_cfg         usb_audio;
 	struct afe_param_id_aptx_sync_mode        sync_mode_param;
+	struct asm_aac_frame_size_control_t       frame_ctl_param;
 	struct afe_enc_fmt_id_param_t             enc_fmt;
 	struct afe_port_media_type_t              media_type;
 	struct afe_enc_cfg_blk_param_t            enc_blk_param;
@@ -4015,7 +4104,6 @@ struct afe_lpass_core_shared_clk_config_command {
 #define DEFAULT_POPP_TOPOLOGY				0x00010BE4
 #define COMPRESSED_PASSTHROUGH_DEFAULT_TOPOLOGY         0x0001076B
 #define COMPRESSED_PASSTHROUGH_NONE_TOPOLOGY            0x00010774
-#define VPM_TX_SM_ECNS_COPP_TOPOLOGY			0x00010F71
 #define VPM_TX_SM_ECNS_V2_COPP_TOPOLOGY			0x00010F89
 #define VPM_TX_DM_FLUENCE_COPP_TOPOLOGY			0x00010F72
 #define VPM_TX_QMIC_FLUENCE_COPP_TOPOLOGY		0x00010F75
@@ -4306,13 +4394,68 @@ struct asm_softvolume_params {
 /* Rear left of center. */
 #define PCM_CHANNEL_RLC  15
 
-/* Rear right of center. Update PCM_MAX_CHMAP_ID when
- * this list is extended.
- */
+/* Rear right of center. */
 #define PCM_CHANNEL_RRC  16
 
-/* Max valid channel map index */
-#define PCM_MAX_CHMAP_ID PCM_CHANNEL_RRC
+/* Secondary low frequency effect channel. */
+#define PCM_CHANNEL_LFE2  17
+
+/* Side left channel. */
+#define PCM_CHANNEL_SL  18
+
+/* Side right channel. */
+#define PCM_CHANNEL_SR  19
+
+/* Top front left channel. */
+#define PCM_CHANNEL_TFL  20
+
+/* Left vertical height channel. */
+#define PCM_CHANNEL_LVH  PCM_CHANNEL_TFL
+
+/* Top front right channel. */
+#define PCM_CHANNEL_TFR 21
+
+/* Right vertical height channel. */
+#define PCM_CHANNEL_RVH PCM_CHANNEL_TFR
+
+/* Top center channel. */
+#define PCM_CHANNEL_TC  22
+
+/* Top back left channel. */
+#define PCM_CHANNEL_TBL  23
+
+/* Top back right channel. */
+#define PCM_CHANNEL_TBR  24
+
+/* Top side left channel. */
+#define PCM_CHANNEL_TSL  25
+
+/* Top side right channel. */
+#define PCM_CHANNEL_TSR  26
+
+/* Top back center channel. */
+#define PCM_CHANNEL_TBC  27
+
+/* Bottom front center channel. */
+#define PCM_CHANNEL_BFC  28
+
+/* Bottom front left channel. */
+#define PCM_CHANNEL_BFL  29
+
+/* Bottom front right channel. */
+#define PCM_CHANNEL_BFR  30
+
+/* Left wide channel. */
+#define PCM_CHANNEL_LW  31
+
+/* Right wide channel. */
+#define PCM_CHANNEL_RW  32
+
+/* Left side direct channel. */
+#define PCM_CHANNEL_LSD  33
+
+/* Right side direct channel. */
+#define PCM_CHANNEL_RSD  34
 
 #define PCM_FORMAT_MAX_NUM_CHANNEL  8
 
@@ -7316,11 +7459,18 @@ struct asm_stream_cmd_open_read_compressed {
 								0x11000000
 #define ADM_CMD_COPP_OPENOPOLOGY_ID_SPEAKER_MCH_PEAK_VOL \
 								0x0001031B
+#define ADM_CMD_COPP_OPENOPOLOGY_ID_SPEAKER_RX_MCH_IIR_COPP_MBDRC_V3 \
+								0x11000004
+#define ADM_CMD_COPP_OPENOPOLOGY_ID_SPEAKER_STEREO_AUDIO_COPP_SOMC_HP \
+								0x11000006
+#define ADM_CMD_COPP_OPENOPOLOGY_ID_SPEAKER_RX_MCH_FIR_IIR_COPP_MBDRC_V3 \
+								0x11000009
 #define ADM_CMD_COPP_OPENOPOLOGY_ID_MIC_MONO_AUDIO_COPP  0x00010315
 #define ADM_CMD_COPP_OPENOPOLOGY_ID_MIC_STEREO_AUDIO_COPP 0x00010316
 #define AUDPROC_COPPOPOLOGY_ID_MCHAN_IIR_AUDIO           0x00010715
 #define ADM_CMD_COPP_OPENOPOLOGY_ID_DEFAULT_AUDIO_COPP   0x00010BE3
 #define ADM_CMD_COPP_OPENOPOLOGY_ID_PEAKMETER_AUDIO_COPP 0x00010317
+#define ADM_CMD_COPP_OPENOPOLOGY_ID_AUDIO_RX_SONY_SPEAKER 0x11000010
 #define AUDPROC_MODULE_ID_AIG   0x00010716
 #define AUDPROC_PARAM_ID_AIG_ENABLE		0x00010717
 #define AUDPROC_PARAM_ID_AIG_CONFIG		0x00010718
@@ -9565,7 +9715,6 @@ struct asm_aptx_dec_fmt_blk_v2 {
 #define AVCS_CMDRSP_GET_FWK_VERSION (0x0001292D)
 
 #define AVCS_SERVICE_ID_ALL (0xFFFFFFFF)
-#define AVCS_SERVICE_ID_AFE (0x4)
 #define APRV2_IDS_SERVICE_ID_ADSP_CVP_V	(0xB)
 
 struct avcs_get_fwk_version {
@@ -9761,6 +9910,45 @@ struct afe_param_id_clip_bank_sel {
 
 	uint32_t bank_map[AFE_CLIP_MAX_BANKS];
 } __packed;
+
+/* SOMC effect start */
+/* Module/Parameter IDs */
+#define ASM_MODULE_ID_SONYBUNDLE            0x10002010
+
+#define PARAM_ID_SB_COMMON_USER_PARAM       0x10002011
+#define PARAM_ID_SB_DYNAMICNORMALIZER_USER_PARAM 0x10002012
+#define PARAM_ID_SB_SFORCE_USER_PARAM       0x10002013
+#define PARAM_ID_SB_VPT20_USER_PARAM        0x10002014
+#define PARAM_ID_SB_CLEARPHASE_HP_USER_PARAM 0x10002015
+#define PARAM_ID_SB_CLEARAUDIO_USER_PARAM   0x10002016
+#define PARAM_ID_SB_CLEARAUDIO_VOLUME_PARAM 0x10002017
+#define PARAM_ID_SB_CLEARPHASE_SP_USER_PARAM 0x10002018
+#define PARAM_ID_SB_XLOUD_USER_PARAM        0x10002019
+
+#define PARAM_ID_SB_CLEARPHASE_HP_TUNING    0x1000201A
+#define PARAM_ID_SB_SFORCE_TUNING           0x1000201B
+#define PARAM_ID_SB_CLEARPHASE_SP_TUNING    0x1000201C
+#define PARAM_ID_SB_XLOUD_TUNING            0x1000201D
+
+#define ASM_STREAM_POSTPROC_TOPO_ID_SONY    0x10002101
+
+struct clearphase_hp_tuning_params {
+	unsigned char coefs[2064];
+} __packed;
+
+struct s_force_tuning_params {
+	unsigned char coefs[1016];
+} __packed;
+
+struct clearphase_sp_tuning_params {
+	unsigned char coefs[2360];
+} __packed;
+
+struct xloud_tuning_params {
+	unsigned int level;
+	unsigned char coefs[512];
+} __packed;
+/* SOMC effect end */
 
 /* ERROR CODES */
 /* Success. The operation completed with no errors. */
@@ -10041,7 +10229,7 @@ struct afe_clk_set {
 	 * for enable and disable clock.
 	 *	"clk_freq_in_hz", "clk_attri", and "clk_root"
 	 *	are ignored in disable clock case.
-	 *	@values 
+	 *	@valuesÂ 
 	 *	- 0 -- Disabled
 	 *	- 1 -- Enabled  @tablebulletend
 	 */

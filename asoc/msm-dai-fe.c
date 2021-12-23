@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -2570,6 +2570,44 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 		.probe = fe_dai_probe,
 	},
 	{
+		.playback = {
+			.stream_name = "MultiMedia21 Playback",
+			.aif_name = "MM_DL21",
+			.rates = (SNDRV_PCM_RATE_8000_384000|
+					SNDRV_PCM_RATE_KNOT),
+			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
+				    SNDRV_PCM_FMTBIT_S24_LE |
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+				    SNDRV_PCM_FMTBIT_S32_LE),
+			.channels_min = 1,
+			.channels_max = 32,
+			.rate_min = 8000,
+			.rate_max = 384000,
+		},
+		.ops = &msm_fe_Multimedia_dai_ops,
+		.name = "MultiMedia21",
+		.probe = fe_dai_probe,
+	},
+	{
+		.playback = {
+			.stream_name = "MultiMedia22 Playback",
+			.aif_name = "MM_DL22",
+			.rates = (SNDRV_PCM_RATE_8000_384000|
+					SNDRV_PCM_RATE_KNOT),
+			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
+				    SNDRV_PCM_FMTBIT_S24_LE |
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+				    SNDRV_PCM_FMTBIT_S32_LE),
+			.channels_min = 1,
+			.channels_max = 32,
+			.rate_min = 8000,
+			.rate_max = 384000,
+		},
+		.ops = &msm_fe_Multimedia_dai_ops,
+		.name = "MultiMedia22",
+		.probe = fe_dai_probe,
+	},
+	{
 		.capture = {
 		.stream_name = "MultiMedia28 Capture",
 		.aif_name = "MM_UL28",
@@ -2636,18 +2674,21 @@ static struct platform_driver msm_fe_dai_driver = {
 		.name = "msm-dai-fe",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_fe_dt_match,
+		.suppress_bind_attrs = true,
 	},
 };
 
-int __init msm_fe_dai_init(void)
+static int __init msm_fe_dai_init(void)
 {
 	return platform_driver_register(&msm_fe_dai_driver);
 }
+module_init(msm_fe_dai_init);
 
-void msm_fe_dai_exit(void)
+static void __exit msm_fe_dai_exit(void)
 {
 	platform_driver_unregister(&msm_fe_dai_driver);
 }
+module_exit(msm_fe_dai_exit);
 
 /* Module information */
 MODULE_DESCRIPTION("MSM Frontend DAI driver");
